@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import subprocess
 import uuid
 import yt_dlp
 import logging
@@ -13,22 +14,93 @@ class VideoProcessor:
     """视频处理器，使用yt-dlp下载和转换视频"""
     
     def __init__(self):
+        self.ffmpeg_path, self.ffprobe_path = self._resolve_ffmpeg_binaries()
         self.ydl_opts = {
-            'format': 'bestaudio/best',  # 优先下载最佳音频源
+            'format': 'worstaudio/worst',  # 最小音频源即可，Whisper只需16kHz单声道
             'outtmpl': '%(title)s.%(ext)s',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 # 直接在提取阶段转换为单声道 16k（空间小且稳定）
-                'preferredcodec': 'm4a',
-                'preferredquality': '192'
+                'preferredcodec': 'wav',
+                'preferredquality': '0'
             }],
-            # 全局FFmpeg参数：单声道 + 16k 采样率 + faststart
-            'postprocessor_args': ['-ac', '1', '-ar', '16000', '-movflags', '+faststart'],
+            # 全局FFmpeg参数：单声道 + 16k 采样率
+            'postprocessor_args': ['-ac', '1', '-ar', '16000'],
             'prefer_ffmpeg': True,
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True,  # 强制只下载单个视频，不下载播放列表
         }
+        if self.ffmpeg_path:
+            self.ydl_opts['ffmpeg_location'] = str(Path(self.ffmpeg_path).parent)
+            logger.info(f"使用FFmpeg路径: {self.ffmpeg_path}")
+
+    def _resolve_ffmpeg_binaries(self) -> tuple[Optional[str], Optional[str]]:
+        """解析 ffmpeg/ffprobe 可执行文件路径，尽量避免依赖启动时 PATH。"""
+        env_ffmpeg = os.getenv("FFMPEG_BINARY") or os.getenv("FFMPEG_PATH")
+        env_ffprobe = os.getenv("FFPROBE_BINARY") or os.getenv("FFPROBE_PATH")
+
+        ffmpeg_path = self._find_binary("ffmpeg", env_ffmpeg)
+        ffprobe_path = self._find_binary("ffprobe", env_ffprobe)
+
+        if ffmpeg_path and ffprobe_path:
+            return ffmpeg_path, ffprobe_path
+
+        for base_dir in self._candidate_ffmpeg_dirs():
+            candidate_ffmpeg = base_dir / "ffmpeg.exe"
+            candidate_ffprobe = base_dir / "ffprobe.exe"
+            if not ffmpeg_path and candidate_ffmpeg.exists():
+                ffmpeg_path = str(candidate_ffmpeg)
+            if not ffprobe_path and candidate_ffprobe.exists():
+                ffprobe_path = str(candidate_ffprobe)
+            if ffmpeg_path and ffprobe_path:
+                return ffmpeg_path, ffprobe_path
+
+        return ffmpeg_path, ffprobe_path
+
+    def _find_binary(self, command: str, env_path: Optional[str] = None) -> Optional[str]:
+        """优先使用环境变量指定路径，其次使用 PATH 查找。"""
+        if env_path:
+            candidate = Path(env_path)
+            if candidate.is_dir():
+                candidate = candidate / f"{command}.exe"
+            if candidate.exists():
+                return str(candidate)
+
+        resolved = shutil.which(command)
+        return resolved if resolved else None
+
+    def _candidate_ffmpeg_dirs(self) -> list[Path]:
+        """搜索 Windows 常见的 FFmpeg 安装位置。"""
+        candidates: list[Path] = []
+        for env_name in ("LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"):
+            root = os.getenv(env_name)
+            if not root:
+                continue
+
+            root_path = Path(root)
+            if env_name == "LOCALAPPDATA":
+                patterns = [
+                    Path("Microsoft/WinGet/Packages/**/bin"),
+                    Path("Microsoft/WinGet/Links"),
+                ]
+            else:
+                patterns = [
+                    Path("ffmpeg/**/bin"),
+                    Path("FFmpeg/**/bin"),
+                ]
+
+            for pattern in patterns:
+                candidates.extend(path for path in root_path.glob(str(pattern)) if path.is_dir())
+
+        unique_candidates = []
+        seen = set()
+        for path in candidates:
+            normalized = str(path).lower()
+            if normalized not in seen:
+                seen.add(normalized)
+                unique_candidates.append(path)
+        return unique_candidates
     
     async def fetch_subtitles(self, url: str, output_dir: Path) -> tuple[Optional[str], Optional[str], Optional[str]]:
         """
@@ -334,12 +406,12 @@ class VideoProcessor:
                 # 下载视频（放到线程池避免阻塞事件循环）
                 await asyncio.to_thread(ydl.download, [url])
             
-            # 查找生成的m4a文件
-            audio_file = str(output_dir / f"audio_{unique_id}.m4a")
+            # 查找生成的wav文件
+            audio_file = str(output_dir / f"audio_{unique_id}.wav")
             
             if not os.path.exists(audio_file):
-                # 如果m4a文件不存在，查找其他音频格式
-                for ext in ['webm', 'mp4', 'mp3', 'wav']:
+                # 如果wav文件不存在，查找其他音频格式
+                for ext in ['m4a', 'webm', 'mp4', 'mp3']:
                     potential_file = str(output_dir / f"audio_{unique_id}.{ext}")
                     if os.path.exists(potential_file):
                         audio_file = potential_file
@@ -349,11 +421,8 @@ class VideoProcessor:
             
             # 校验时长，如果和源视频差异较大，尝试一次ffmpeg规范化重封装
             try:
-                import subprocess, shlex
-                probe_cmd = f"ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 {shlex.quote(audio_file)}"
-                out = subprocess.check_output(probe_cmd, shell=True).decode().strip()
-                actual_duration = float(out) if out else 0.0
-            except Exception as _:
+                actual_duration = self._probe_duration(audio_file)
+            except Exception:
                 actual_duration = 0.0
             
             if expected_duration and actual_duration and abs(actual_duration - expected_duration) / expected_duration > 0.1:
@@ -361,14 +430,12 @@ class VideoProcessor:
                     f"音频时长异常，期望{expected_duration}s，实际{actual_duration}s，尝试重封装修复…"
                 )
                 try:
-                    fixed_path = str(output_dir / f"audio_{unique_id}_fixed.m4a")
-                    fix_cmd = f"ffmpeg -y -i {shlex.quote(audio_file)} -vn -c:a aac -b:a 160k -movflags +faststart {shlex.quote(fixed_path)}"
-                    subprocess.check_call(fix_cmd, shell=True)
+                    fixed_path = str(output_dir / f"audio_{unique_id}_fixed.wav")
+                    self._remux_audio(audio_file, fixed_path)
                     # 用修复后的文件替换
                     audio_file = fixed_path
                     # 重新探测
-                    out2 = subprocess.check_output(probe_cmd.replace(shlex.quote(audio_file.rsplit('.',1)[0]+'.m4a'), shlex.quote(audio_file)), shell=True).decode().strip()
-                    actual_duration2 = float(out2) if out2 else 0.0
+                    actual_duration2 = self._probe_duration(audio_file)
                     logger.info(f"重封装完成，新时长≈{actual_duration2:.2f}s")
                 except Exception as e:
                     logger.error(f"重封装失败：{e}")
@@ -380,6 +447,47 @@ class VideoProcessor:
             logger.error(f"下载视频失败: {str(e)}")
             raise Exception(f"下载视频失败: {str(e)}")
     
+    async def extract_audio_from_file(self, file_path: str, output_dir: Path) -> str:
+        """
+        Extract audio from a local video/audio file and convert to WAV for Whisper.
+        Optimized for speed on large files.
+
+        Args:
+            file_path: Path to the uploaded file
+            output_dir: Output directory for the converted audio
+
+        Returns:
+            Path to the converted wav audio file
+        """
+        import asyncio
+
+        if not self.ffmpeg_path:
+            raise RuntimeError("ffmpeg is not available")
+
+        output_dir.mkdir(exist_ok=True)
+        unique_id = str(uuid.uuid4())[:8]
+        output_file = str(output_dir / f"audio_{unique_id}.wav")
+
+        cmd = [
+            self.ffmpeg_path,
+            '-y',
+            '-hide_banner',
+            '-loglevel', 'error',
+            '-threads', str(os.cpu_count() or 4),
+            '-i', file_path,
+            '-vn',              # no video
+            '-ac', '1',         # mono
+            '-ar', '16000',     # 16kHz
+            '-c:a', 'pcm_s16le',
+            '-f', 'wav',
+            output_file,
+        ]
+
+        logger.info(f"Extracting audio from uploaded file: {file_path}")
+        await asyncio.to_thread(subprocess.check_call, cmd)
+        logger.info(f"Audio extracted to: {output_file}")
+        return output_file
+
     def get_video_info(self, url: str) -> dict:
         """
         获取视频信息
@@ -404,3 +512,38 @@ class VideoProcessor:
         except Exception as e:
             logger.error(f"获取视频信息失败: {str(e)}")
             raise Exception(f"获取视频信息失败: {str(e)}")
+
+    def _probe_duration(self, audio_file: str) -> float:
+        """使用 ffprobe 获取音频时长。"""
+        if not self.ffprobe_path:
+            raise RuntimeError("ffprobe 不可用")
+
+        result = subprocess.check_output(
+            [
+                self.ffprobe_path,
+                '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                audio_file,
+            ],
+            text=True,
+        ).strip()
+        return float(result) if result else 0.0
+
+    def _remux_audio(self, audio_file: str, fixed_path: str) -> None:
+        """使用 ffmpeg 重新封装音频文件。"""
+        if not self.ffmpeg_path:
+            raise RuntimeError("ffmpeg 不可用")
+
+        subprocess.check_call(
+            [
+                self.ffmpeg_path,
+                '-y',
+                '-i', audio_file,
+                '-vn',
+                '-c:a', 'aac',
+                '-b:a', '160k',
+                '-movflags', '+faststart',
+                fixed_path,
+            ]
+        )

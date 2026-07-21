@@ -179,7 +179,8 @@ AI-Video-Transcriber/
 | `OPENAI_API_KEY` | API密钥（服务端默认值） | - | 否，可在UI中配置 |
 | `HOST` | 服务器地址 | `0.0.0.0` | 否 |
 | `PORT` | 服务器端口 | `8000` | 否 |
-| `WHISPER_MODEL_SIZE` | Whisper模型大小 | `base` | 否 |
+| `WHISPER_MODEL` | Whisper模型大小 | `small` | 否 |
+| `WHISPER_MODEL_SIZE` | 兼容旧配置的 Whisper 模型别名 | `small` | 否 |
 
 ### Whisper模型大小选项
 
@@ -194,7 +195,7 @@ AI-Video-Transcriber/
 ## 🔧 常见问题
 
 ### Q: 为什么转录速度很慢？
-A: 转录速度取决于视频长度、Whisper模型大小和硬件性能。可以尝试使用更小的模型（如tiny或base）来提高速度。
+A: 转录速度取决于视频长度、Whisper模型大小和硬件性能。现在默认使用 `small`，因为它对多语言语音的准确率明显高于 `base`。如果你更在意速度，可以切换到 `base` 或 `tiny`。
 
 ### Q: 支持哪些视频平台？
 A: 支持所有yt-dlp支持的平台，包括但不限于：YouTube、抖音、Bilibili、优酷、爱奇艺、腾讯视频等。
@@ -279,7 +280,7 @@ A: 内存使用量根据部署方式和工作负载而有所不同：
 **内存优化建议：**
 ```bash
 # 使用更小的Whisper模型减少内存占用
-WHISPER_MODEL_SIZE=tiny  # 或 base
+WHISPER_MODEL=tiny  # 或 base
 
 # Docker部署时可限制容器内存
 docker run -m 1g -p 8000:8000 --env-file .env ai-video-transcriber

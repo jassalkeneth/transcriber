@@ -30,6 +30,9 @@ class VideoTranscriber {
         model_select:            'Model',
         model_default:           '— use server default —',
         summary_language:        'Summary Language',
+        transcription_mode:      'Mode',
+        mode_accurate:           'Accurate',
+        mode_fast:               'Fast',
         processing_progress:     'Processing',
         preparing:               'Preparing…',
         transcript_text:         'Transcript',
@@ -39,7 +42,7 @@ class VideoTranscriber {
         download_translation:    'Translation',
         download_summary:        'Summary',
         empty_hint:              'Paste a video URL above and let AI do the heavy lifting.',
-        footer_text:             'This tool is part of <a href="https://sipsip.ai" target="_blank" style="color:var(--accent-text);text-decoration:none;">sipsip.ai</a> — transcribe any video, and get daily AI briefs from your favorite creators delivered to your inbox. Free to start.',
+        footer_text:             'The 30 Minute Trader video transcriber helps you turn creator videos into transcripts, summaries, and translations in one place.',
         processing:              'Processing…',
         downloading_video:       'Downloading audio…',
         parsing_video:           'Parsing video info…',
@@ -59,6 +62,13 @@ class VideoTranscriber {
         fetching_models:         'Fetching models…',
         models_loaded:           (n) => `${n} models loaded`,
         models_error:            'Failed to fetch models',
+        verbatim_mode:           'Verbatim',
+        drop_zone_text:          'Drop video or audio files here, or click to browse',
+        error_no_input:          'Please enter a video URL or drop a file',
+        download_pdf:            'PDF',
+        download_srt:            'SRT',
+        download_docx:           'Word',
+        download_yaml:           'AI Data',
       },
       zh: {
         title:                   'AI 视频转录器',
@@ -74,6 +84,9 @@ class VideoTranscriber {
         model_select:            '模型',
         model_default:           '— 使用服务器默认 —',
         summary_language:        '摘要语言',
+        transcription_mode:      '模式',
+        mode_accurate:           '准确优先',
+        mode_fast:               '速度优先',
         processing_progress:     '处理进度',
         preparing:               '准备中…',
         transcript_text:         '转录文本',
@@ -83,7 +96,7 @@ class VideoTranscriber {
         download_translation:    '翻译',
         download_summary:        '摘要',
         empty_hint:              '在上方粘贴视频链接，让 AI 来处理一切。',
-        footer_text:             '本工具是 <a href="https://sipsip.ai" target="_blank" style="color:var(--accent-text);text-decoration:none;">sipsip.ai</a> 的一部分 — 转录任意视频，并将你关注的创作者的每日 AI 简报发送到你的邮箱。免费开始使用。',
+        footer_text:             'The 30 Minute Trader 视频转录工具可在一个界面中完成视频转录、摘要生成和翻译。',
         processing:              '处理中…',
         downloading_video:       '正在下载音频…',
         parsing_video:           '正在解析视频信息…',
@@ -103,6 +116,13 @@ class VideoTranscriber {
         fetching_models:         '正在获取模型列表…',
         models_loaded:           (n) => `已加载 ${n} 个模型`,
         models_error:            '获取模型失败',
+        verbatim_mode:           '逐字转录',
+        drop_zone_text:          '拖放视频或音频文件到此处，或点击选择文件',
+        error_no_input:          '请输入视频链接或拖放文件',
+        download_pdf:            'PDF',
+        download_srt:            'SRT',
+        download_docx:           'Word',
+        download_yaml:           'AI数据',
       }
     };
 
@@ -118,6 +138,7 @@ class VideoTranscriber {
     this.videoUrlInput      = document.getElementById('videoUrl');
     this.submitBtn          = document.getElementById('submitBtn');
     this.summaryLangSel     = document.getElementById('summaryLanguage');
+    this.transcriptionMode  = document.getElementById('transcriptionMode');
     this.langToggle         = document.getElementById('langToggle');
     this.langText           = document.getElementById('langText');
     this.errorBanner        = document.getElementById('errorBanner');
@@ -135,6 +156,10 @@ class VideoTranscriber {
     this.dlScript           = document.getElementById('downloadScript');
     this.dlTranslation      = document.getElementById('downloadTranslation');
     this.dlSummary          = document.getElementById('downloadSummary');
+    this.dlPdf              = document.getElementById('downloadPdf');
+    this.dlDocx             = document.getElementById('downloadDocx');
+    this.dlSrt              = document.getElementById('downloadSrt');
+    this.dlYaml             = document.getElementById('downloadYaml');
     this.translationTabBtn  = document.getElementById('translationTabBtn');
     this.tabBtns            = document.querySelectorAll('.tab-btn');
     this.tabPanes           = document.querySelectorAll('.tab-pane');
@@ -147,6 +172,14 @@ class VideoTranscriber {
     this.fetchStatus        = document.getElementById('fetchStatus');
     this.modelSelect        = document.getElementById('modelSelect');
     this.fetchIcon          = document.getElementById('fetchIcon');
+    this.verbatimCheckbox   = document.getElementById('verbatimMode');
+    // Drop zone
+    this.dropZone           = document.getElementById('dropZone');
+    this.fileInput           = document.getElementById('fileInput');
+    this.fileInfo            = document.getElementById('fileInfo');
+    this.fileNameSpan        = document.getElementById('fileName');
+    this.fileClear           = document.getElementById('fileClear');
+    this.selectedFile        = null;
   }
 
   /* ── Events ───────────────────────────────────────────── */
@@ -174,9 +207,17 @@ class VideoTranscriber {
     this.apiKeyInput.addEventListener('input', debouncedFetch);
 
     // Persist settings
-    [this.modelBaseUrl, this.apiKeyInput, this.modelSelect, this.summaryLangSel].forEach(el => {
+    [this.modelBaseUrl, this.apiKeyInput, this.modelSelect, this.summaryLangSel, this.transcriptionMode, this.verbatimCheckbox].forEach(el => {
       el.addEventListener('change', () => this._saveSettings());
     });
+
+    // Drop zone
+    this.dropZone.addEventListener('click', () => this.fileInput.click());
+    this.dropZone.addEventListener('dragover', (e) => { e.preventDefault(); this.dropZone.classList.add('dragover'); });
+    this.dropZone.addEventListener('dragleave', () => this.dropZone.classList.remove('dragover'));
+    this.dropZone.addEventListener('drop', (e) => { e.preventDefault(); this.dropZone.classList.remove('dragover'); this._handleFiles(e.dataTransfer.files); });
+    this.fileInput.addEventListener('change', () => this._handleFiles(this.fileInput.files));
+    this.fileClear.addEventListener('click', (e) => { e.stopPropagation(); this._clearFile(); });
 
     // Tabs
     this.tabBtns.forEach(btn => {
@@ -187,6 +228,10 @@ class VideoTranscriber {
     this.dlScript.addEventListener('click',      () => this._downloadFile('script'));
     this.dlTranslation.addEventListener('click', () => this._downloadFile('translation'));
     this.dlSummary.addEventListener('click',     () => this._downloadFile('summary'));
+    this.dlPdf.addEventListener('click',         () => this._downloadPdf());
+    this.dlDocx.addEventListener('click',        () => this._downloadDocx());
+    this.dlSrt.addEventListener('click',         () => this._downloadSrt());
+    this.dlYaml.addEventListener('click',        () => this._downloadYaml());
   }
 
   /* ── i18n ─────────────────────────────────────────────── */
@@ -219,6 +264,8 @@ class VideoTranscriber {
       apiKey:   this.apiKeyInput.value,
       model:    this.modelSelect.value,
       summaryLang: this.summaryLangSel.value,
+      transcriptionMode: this.transcriptionMode.value,
+      verbatim: this.verbatimCheckbox.checked,
     };
     try { localStorage.setItem('vt_settings', JSON.stringify(s)); } catch (_) {}
   }
@@ -231,6 +278,8 @@ class VideoTranscriber {
       if (s.baseUrl)     this.modelBaseUrl.value = s.baseUrl;
       if (s.apiKey)      this.apiKeyInput.value  = s.apiKey;
       if (s.summaryLang) this.summaryLangSel.value = s.summaryLang;
+      if (s.transcriptionMode) this.transcriptionMode.value = s.transcriptionMode;
+      if (s.verbatim !== undefined) this.verbatimCheckbox.checked = s.verbatim;
       // Model options will be restored after fetching
       this._savedModel = s.model || '';
 
@@ -313,7 +362,7 @@ class VideoTranscriber {
     const url     = this.videoUrlInput.value.trim();
     const sumLang = this.summaryLangSel.value;
 
-    if (!url) { this._showError(this.t('error_invalid_url')); return; }
+    if (!url && !this.selectedFile) { this._showError(this.t('error_no_input')); return; }
 
     this._setLoading(true);
     this._hideError();
@@ -321,8 +370,10 @@ class VideoTranscriber {
 
     try {
       const fd = new FormData();
+      if (this.selectedFile) fd.append('file', this.selectedFile);
       fd.append('url',              url);
       fd.append('summary_language', sumLang);
+      fd.append('transcription_mode', this.transcriptionMode.value || 'fast');
 
       const apiKey  = this.apiKeyInput.value.trim();
       const baseUrl = this.modelBaseUrl.value.trim().replace(/\/$/, '');
@@ -330,6 +381,7 @@ class VideoTranscriber {
       if (apiKey)  fd.append('api_key',       apiKey);
       if (baseUrl) fd.append('model_base_url', baseUrl);
       if (modelId) fd.append('model_id',       modelId);
+      if (this.verbatimCheckbox.checked) fd.append('verbatim_mode', 'true');
 
       const resp = await fetch(`${this.apiBase}/process-video`, { method: 'POST', body: fd });
       if (!resp.ok) {
@@ -366,7 +418,7 @@ class VideoTranscriber {
 
         if (task.status === 'completed') {
           this._stopSP(); this._stopSSE(); this._setLoading(false); this._hideProgress();
-          this._showResults(task.script, task.summary, task.video_title, task.translation, task.detected_language, task.summary_language);
+          this._showResults(task.script, task.summary, task.video_title, task.translation, task.detected_language, task.summary_language, task.metadata_path);
         } else if (task.status === 'error') {
           this._stopSP(); this._stopSSE(); this._setLoading(false); this._hideProgress();
           this._showError(task.error || 'Processing error');
@@ -383,7 +435,7 @@ class VideoTranscriber {
             const task = await r.json();
             if (task?.status === 'completed') {
               this._stopSP(); this._setLoading(false); this._hideProgress();
-              this._showResults(task.script, task.summary, task.video_title, task.translation, task.detected_language, task.summary_language);
+              this._showResults(task.script, task.summary, task.video_title, task.translation, task.detected_language, task.summary_language, task.metadata_path);
               return;
             }
           }
@@ -533,7 +585,7 @@ class VideoTranscriber {
   _hideProgress() { this.progressPanel.classList.remove('show'); }
 
   /* ── Results ──────────────────────────────────────────── */
-  _showResults(script, summary, videoTitle, translation, detectedLang, summaryLang) {
+  _showResults(script, summary, videoTitle, translation, detectedLang, summaryLang, metadataPath) {
     this.scriptContent.innerHTML  = script    ? marked.parse(script)      : '';
     this.summaryContent.innerHTML = summary   ? marked.parse(summary)     : '';
 
@@ -546,6 +598,10 @@ class VideoTranscriber {
       this.translationTabBtn.style.display  = 'none';
       this.dlTranslation.style.display      = 'none';
     }
+
+    // Show YAML download button only when metadata was generated
+    this._currentMetadataPath = metadataPath || null;
+    this.dlYaml.style.display = metadataPath ? 'inline-flex' : 'none';
 
     this.resultsPanel.classList.add('show');
     this._switchTab('script');
@@ -561,6 +617,62 @@ class VideoTranscriber {
   }
 
   /* ── Download ─────────────────────────────────────────── */
+  async _downloadPdf() {
+    if (!this.currentTaskId) { this._showError(this.t('error_no_download')); return; }
+    try {
+      const a = document.createElement('a');
+      a.href = `${this.apiBase}/download-pdf/${this.currentTaskId}`;
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (e) {
+      this._showError(this.t('error_download_failed') + e.message);
+    }
+  }
+
+  async _downloadSrt() {
+    if (!this.currentTaskId) { this._showError(this.t('error_no_download')); return; }
+    try {
+      const a = document.createElement('a');
+      a.href = `${this.apiBase}/download-srt/${this.currentTaskId}`;
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (e) {
+      this._showError(this.t('error_download_failed') + e.message);
+    }
+  }
+
+  async _downloadDocx() {
+    if (!this.currentTaskId) { this._showError(this.t('error_no_download')); return; }
+    try {
+      const a = document.createElement('a');
+      a.href = `${this.apiBase}/download-docx/${this.currentTaskId}`;
+      a.download = '';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (e) {
+      this._showError(this.t('error_download_failed') + e.message);
+    }
+  }
+
+  async _downloadYaml() {
+    if (!this._currentMetadataPath) { this._showError(this.t('error_no_download')); return; }
+    try {
+      const a = document.createElement('a');
+      a.href = `${this.apiBase}/download/${encodeURIComponent(this._currentMetadataPath)}`;
+      a.download = this._currentMetadataPath;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (e) {
+      this._showError(this.t('error_download_failed') + e.message);
+    }
+  }
+
   async _downloadFile(type) {
     if (!this.currentTaskId) { this._showError(this.t('error_no_download')); return; }
     try {
@@ -569,9 +681,9 @@ class VideoTranscriber {
       const task = await r.json();
 
       let filename;
-      if      (type === 'script')      filename = task.script_path      ? task.script_path.split('/').pop()      : `transcript_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
-      else if (type === 'summary')     filename = task.summary_path     ? task.summary_path.split('/').pop()     : `summary_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
-      else if (type === 'translation') filename = task.translation_path ? task.translation_path.split('/').pop() : `translation_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
+      if      (type === 'script')      filename = task.script_path      || `transcript_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
+      else if (type === 'summary')     filename = task.summary_path     || `summary_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
+      else if (type === 'translation') filename = task.translation_path || `translation_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
       else throw new Error('Unknown type');
 
       const a = document.createElement('a');
@@ -583,6 +695,22 @@ class VideoTranscriber {
     } catch (e) {
       this._showError(this.t('error_download_failed') + e.message);
     }
+  }
+
+  /* ── File drop handling ─────────────────────────────── */
+  _handleFiles(files) {
+    if (!files || !files.length) return;
+    this.selectedFile = files[0];
+    this.fileNameSpan.textContent = this.selectedFile.name;
+    this.fileInfo.style.display = 'flex';
+    this.dropZone.classList.add('has-file');
+  }
+
+  _clearFile() {
+    this.selectedFile = null;
+    this.fileInput.value = '';
+    this.fileInfo.style.display = 'none';
+    this.dropZone.classList.remove('has-file');
   }
 
   /* ── UI helpers ───────────────────────────────────────── */

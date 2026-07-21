@@ -69,8 +69,12 @@ def setup_environment():
         print("✅ 已设置OpenAI Base URL")
     
     # 设置其他默认配置
-    if not os.getenv("WHISPER_MODEL_SIZE"):
-        os.environ["WHISPER_MODEL_SIZE"] = "base"
+    whisper_model = os.getenv("WHISPER_MODEL") or os.getenv("WHISPER_MODEL_SIZE")
+    if not whisper_model:
+        whisper_model = "small"
+
+    os.environ["WHISPER_MODEL"] = whisper_model
+    os.environ["WHISPER_MODEL_SIZE"] = whisper_model
     
     print("🔑 OpenAI API已配置，摘要功能可用")
     return True

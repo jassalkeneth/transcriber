@@ -8,9 +8,31 @@ logger = logging.getLogger(__name__)
 class Translator:
     """文本翻译器，使用GPT-4o进行高质量翻译"""
     
-    def __init__(self):
+    def __init__(self, api_key: str = None, base_url: str = None, model: str = None):
+        """
+        初始化翻译器。
+
+        优先级：参数 > 环境变量。
+        """
+        self.model = model or "gpt-4o"
         self.client = None
-        self._init_openai_client()
+
+        import os
+        effective_key = api_key or os.getenv("OPENAI_API_KEY")
+        effective_url = base_url or os.getenv("OPENAI_BASE_URL")
+
+        if not effective_key:
+            logger.warning("未设置OPENAI_API_KEY环境变量")
+        else:
+            try:
+                kwargs = {"api_key": effective_key}
+                if effective_url:
+                    kwargs["base_url"] = effective_url
+                self.client = OpenAI(**kwargs)
+                logger.info("Translator OpenAI客户端初始化成功")
+            except Exception as e:
+                logger.error(f"初始化OpenAI客户端失败: {str(e)}")
+                self.client = None
         
         # 语言映射
         self.language_map = {
@@ -28,27 +50,6 @@ class Translator:
             "ar": "العربية",
             "hi": "हिन्दी"
         }
-    
-    def _init_openai_client(self):
-        """初始化OpenAI客户端"""
-        try:
-            import os
-            api_key = os.getenv("OPENAI_API_KEY")
-            base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-            
-            if not api_key:
-                logger.warning("未设置OPENAI_API_KEY环境变量")
-                return
-                
-            self.client = OpenAI(
-                api_key=api_key,
-                base_url=base_url
-            )
-            logger.info("OpenAI客户端初始化成功")
-            
-        except Exception as e:
-            logger.error(f"初始化OpenAI客户端失败: {str(e)}")
-            self.client = None
     
     def _detect_source_language(self, text: str) -> str:
         """检测源文本语言"""
@@ -194,7 +195,7 @@ class Translator:
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -238,7 +239,7 @@ class Translator:
 
             try:
                 response = self.client.chat.completions.create(
-                    model="gpt-4o",
+                    model=self.model,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}

@@ -179,7 +179,8 @@ AI-Video-Transcriber/
 | `OPENAI_API_KEY` | API key (server-side default) | - | No — can be set in UI instead |
 | `HOST` | Server address | `0.0.0.0` | No |
 | `PORT` | Server port | `8000` | No |
-| `WHISPER_MODEL_SIZE` | Whisper model size | `base` | No |
+| `WHISPER_MODEL` | Whisper model size | `small` | No |
+| `WHISPER_MODEL_SIZE` | Legacy Whisper model size alias | `small` | No |
 
 ### Whisper Model Size Options
 
@@ -194,7 +195,7 @@ AI-Video-Transcriber/
 ## 🔧 FAQ
 
 ### Q: Why is transcription slow?
-A: Transcription speed depends on video length, Whisper model size, and hardware performance. Try using smaller models (like tiny or base) to improve speed.
+A: Transcription speed depends on video length, Whisper model size, and hardware performance. The default is now `small` because it is noticeably more accurate for multilingual speech than `base`. If you need more speed, switch to `base` or `tiny`.
 
 ### Q: Which video platforms are supported?
 A: All platforms supported by yt-dlp, including but not limited to: YouTube, TikTok, Facebook, Instagram, Twitter, Bilibili, Youku, iQiyi, Tencent Video, etc.
@@ -279,7 +280,7 @@ A: Memory usage varies depending on the deployment method and workload:
 **Memory Optimization Tips:**
 ```bash
 # Use smaller Whisper model to reduce memory usage
-WHISPER_MODEL_SIZE=tiny  # or base
+WHISPER_MODEL=tiny  # or base
 
 # For Docker, limit container memory if needed
 docker run -m 1g -p 8000:8000 --env-file .env ai-video-transcriber
