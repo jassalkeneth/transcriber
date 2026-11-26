@@ -620,26 +620,52 @@ class VideoTranscriber {
   async _downloadPdf() {
     if (!this.currentTaskId) { this._showError(this.t('error_no_download')); return; }
     try {
-      const a = document.createElement('a');
-      a.href = `${this.apiBase}/download-pdf/${this.currentTaskId}`;
-      a.download = '';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      await this._downloadGeneratedFile(
+        `${this.apiBase}/download-pdf/${this.currentTaskId}`,
+        'application/pdf',
+        'transcript.pdf'
+      );
     } catch (e) {
       this._showError(this.t('error_download_failed') + e.message);
     }
   }
 
+  async _downloadGeneratedFile(url, expectedContentType, fallbackFilename) {
+    const response = await fetch(url);
+    const contentType = response.headers.get('content-type') || '';
+    if (!response.ok || !contentType.toLowerCase().includes(expectedContentType)) {
+      let message = `Download failed (${response.status})`;
+      try {
+        const body = await response.json();
+        if (body.detail || body.message) message = body.detail || body.message;
+      } catch (_) {}
+      throw new Error(message);
+    }
+
+    const disposition = response.headers.get('content-disposition') || '';
+    const encodedFilename = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    const plainFilename = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+    const filename = encodedFilename
+      ? decodeURIComponent(encodedFilename)
+      : (plainFilename || fallbackFilename);
+    const objectUrl = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  }
+
   async _downloadSrt() {
     if (!this.currentTaskId) { this._showError(this.t('error_no_download')); return; }
     try {
-      const a = document.createElement('a');
-      a.href = `${this.apiBase}/download-srt/${this.currentTaskId}`;
-      a.download = '';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      await this._downloadGeneratedFile(
+        `${this.apiBase}/download-srt/${this.currentTaskId}`,
+        'application/x-subrip',
+        'transcript.srt'
+      );
     } catch (e) {
       this._showError(this.t('error_download_failed') + e.message);
     }
@@ -648,12 +674,11 @@ class VideoTranscriber {
   async _downloadDocx() {
     if (!this.currentTaskId) { this._showError(this.t('error_no_download')); return; }
     try {
-      const a = document.createElement('a');
-      a.href = `${this.apiBase}/download-docx/${this.currentTaskId}`;
-      a.download = '';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      await this._downloadGeneratedFile(
+        `${this.apiBase}/download-docx/${this.currentTaskId}`,
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'transcript.docx'
+      );
     } catch (e) {
       this._showError(this.t('error_download_failed') + e.message);
     }

@@ -16,7 +16,7 @@ class VideoProcessor:
     def __init__(self):
         self.ffmpeg_path, self.ffprobe_path = self._resolve_ffmpeg_binaries()
         self.ydl_opts = {
-            'format': 'worstaudio/worst',  # 最小音频源即可，Whisper只需16kHz单声道
+            'format': 'bestaudio/best',
             'outtmpl': '%(title)s.%(ext)s',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
@@ -134,16 +134,22 @@ class VideoProcessor:
                 logger.info(f"视频无可用字幕: {url}")
                 return None, video_title, None
 
-            # 优先手动字幕，其次自动字幕
-            prefer_manual = bool(manual_langs)
+            # Prefer subtitles matching the video's source language when known.
+            source_language = info.get("language")
+            manual_source = self._match_subtitle_language(manual_langs, source_language)
+            auto_source = self._match_subtitle_language(auto_langs, source_language)
+            if manual_source:
+                prefer_manual, prefer_lang = True, manual_source
+            elif auto_source:
+                prefer_manual, prefer_lang = False, auto_source
+            else:
+                prefer_manual = bool(manual_langs)
+                candidate_langs = manual_langs if prefer_manual else auto_langs
+                prefer_lang = next(
+                    (lang for lang in candidate_langs if lang.lower().endswith("-orig")),
+                    candidate_langs[0],
+                )
             candidate_langs = manual_langs if prefer_manual else auto_langs
-
-            # 按优先级选语言：英语 > 简体中文 > 繁体中文 > 其他（取第一个）
-            _priority = ["en", "en-orig", "zh-Hans", "zh-Hant", "zh", "ja", "ko", "fr", "de", "es"]
-            prefer_lang = next(
-                (lang for lang in _priority if lang in candidate_langs),
-                candidate_langs[0],
-            )
             logger.info(
                 f"发现{'手动' if prefer_manual else '自动'}字幕，选用语言: {prefer_lang}"
                 f"（候选 {len(candidate_langs)} 种）"
@@ -202,18 +208,43 @@ class VideoProcessor:
                 except Exception:
                     pass
 
+    @staticmethod
+    def _match_subtitle_language(
+        languages: list[str], source_language: Optional[str]
+    ) -> Optional[str]:
+        """Find a subtitle track matching the video's reported source language."""
+        if not source_language:
+            return None
+
+        source = source_language.lower().replace("_", "-")
+        exact_match = next(
+            (lang for lang in languages if lang.lower().replace("_", "-") == source),
+            None,
+        )
+        if exact_match:
+            return exact_match
+
+        source_base = source.split("-", 1)[0]
+        return next(
+            (
+                lang
+                for lang in languages
+                if lang.lower().replace("_", "-").split("-", 1)[0] == source_base
+            ),
+            None,
+        )
+
     # ------------------------------------------------------------------
     # 字幕解析辅助方法
     # ------------------------------------------------------------------
 
     def _parse_vtt(self, filepath: str) -> list:
-        """解析 WebVTT 字幕文件，返回去重后的条目列表。
+        """解析 WebVTT，并过滤滚动字幕中被后续重叠条目替代的片段。
 
         特别处理 YouTube 自动字幕的「滚动追加」格式：
-        同一句话会被分成多个 cue 逐字追加，只保留每组的「最终版本」。
+        同一句话会被分成多个重叠 cue 逐步追加，只保留最终版本。
         """
         raw_entries = []
-        seen_texts: set = set()
 
         try:
             with open(filepath, "r", encoding="utf-8") as f:
@@ -265,40 +296,38 @@ class VideoProcessor:
             # 合并行内多余空白
             text = re.sub(r"\s+", " ", text).strip()
 
-            if not text or text in seen_texts:
+            if not text:
                 continue
 
-            seen_texts.add(text)
             raw_entries.append({"start": start_str, "end": end_str, "text": text})
 
-        # ── 二次去重：过滤 YouTube「滚动追加」的中间状态 ──────────────────
-        # 若条目 i 的文本是条目 i+1 文本的起始子串，则条目 i 是中间状态，丢弃。
-        # 同时丢弃纯空白/单字符的噪音条目。
+        # Filter overlapping YouTube rolling-caption updates without removing
+        # the same words when they are spoken again later.
         if not raw_entries:
             return []
 
         entries = []
         for i, entry in enumerate(raw_entries):
             text = entry["text"]
-            if len(text) < 2:
-                continue
-            # 检查后续若干条是否以当前文本开头（滚动追加的特征）
             is_intermediate = False
-            for j in range(i + 1, min(i + 4, len(raw_entries))):
-                next_text = raw_entries[j]["text"]
-                if next_text.startswith(text) and len(next_text) > len(text):
-                    is_intermediate = True
-                    break
+            if i + 1 < len(raw_entries):
+                next_entry = raw_entries[i + 1]
+                start_seconds = self._subtitle_time_to_seconds(next_entry["start"])
+                end_seconds = self._subtitle_time_to_seconds(entry["end"])
+                next_text = next_entry["text"]
+                is_intermediate = (
+                    start_seconds < end_seconds
+                    and next_text.startswith(text)
+                    and len(next_text) > len(text)
+                )
             if not is_intermediate:
                 entries.append(entry)
 
         return entries
 
     def _parse_srt(self, filepath: str) -> list:
-        """解析 SRT 字幕文件，返回去重后的条目列表。"""
+        """解析 SRT 字幕文件，保留时间上重复出现的内容。"""
         entries = []
-        seen_texts: set = set()
-
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -330,13 +359,17 @@ class VideoProcessor:
             text = " ".join(text_lines)
             text = re.sub(r"<[^>]+>", "", text).strip()
 
-            if not text or text in seen_texts:
+            if not text:
                 continue
 
-            seen_texts.add(text)
             entries.append({"start": start_str, "end": end_str, "text": text})
 
         return entries
+
+    def _subtitle_time_to_seconds(self, time_str: str) -> int:
+        """Convert normalized MM:SS subtitle times to seconds."""
+        minutes, seconds = (int(part) for part in time_str.split(":"))
+        return minutes * 60 + seconds
 
     def _normalize_time(self, time_str: str) -> str:
         """将 HH:MM:SS.mmm 或 MM:SS.mmm 统一转为 MM:SS 格式。"""

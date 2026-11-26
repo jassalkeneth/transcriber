@@ -122,7 +122,7 @@ python3 start.py --prod
 ## 📖 Usage Guide
 
 1. **Enter Video URL**: Paste a video link from YouTube, Bilibili, or other supported platforms
-2. **Select Summary Language**: Choose the output language from the dropdown next to the input area
+2. **Select Summary Language**: Choose the output language from the dropdown next to the input area. Accurate transcription mode is selected by default; choose Fast when speed matters more than accuracy.
 3. **(Optional) Configure AI Model**: Click **AI Settings** to expand the panel
    - Enter your **API Base URL** (e.g. `https://openrouter.ai/api/v1`) and **API Key**
    - Click **Fetch** to auto-load all models from that provider
@@ -179,8 +179,10 @@ AI-Video-Transcriber/
 | `OPENAI_API_KEY` | API key (server-side default) | - | No — can be set in UI instead |
 | `HOST` | Server address | `0.0.0.0` | No |
 | `PORT` | Server port | `8000` | No |
-| `WHISPER_MODEL` | Whisper model size | `small` | No |
-| `WHISPER_MODEL_SIZE` | Legacy Whisper model size alias | `small` | No |
+| `WHISPER_MODEL` | Whisper model size used by the accurate mode (overrides the legacy alias) | `medium` | No |
+| `WHISPER_MODEL_SIZE` | Legacy Whisper model size alias | `medium` | No |
+| `WHISPER_ACCURATE_MODEL` | Model used by accurate mode; overrides `WHISPER_MODEL` | `medium` | No |
+| `WHISPER_FAST_MODEL` | Model used by fast mode | `base` | No |
 
 ### Whisper Model Size Options
 
@@ -195,7 +197,7 @@ AI-Video-Transcriber/
 ## 🔧 FAQ
 
 ### Q: Why is transcription slow?
-A: Transcription speed depends on video length, Whisper model size, and hardware performance. The default is now `small` because it is noticeably more accurate for multilingual speech than `base`. If you need more speed, switch to `base` or `tiny`.
+A: Transcription speed depends on video length, Whisper model size, and hardware performance. Accurate mode defaults to the multilingual `medium` model with a wider beam search; this uses more compute than `base` or `small`. Choose Fast mode or set `WHISPER_ACCURATE_MODEL` to a smaller model when speed or memory is more important.
 
 ### Q: Which video platforms are supported?
 A: All platforms supported by yt-dlp, including but not limited to: YouTube, TikTok, Facebook, Instagram, Twitter, Bilibili, Youku, iQiyi, Tencent Video, etc.

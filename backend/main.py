@@ -52,7 +52,7 @@ def _get_whisper_model_name() -> str:
     return (
         os.getenv("WHISPER_MODEL")
         or os.getenv("WHISPER_MODEL_SIZE")
-        or "small"
+        or "medium"
     )
 
 
@@ -72,7 +72,7 @@ def _normalize_transcription_mode(mode: Optional[str]) -> str:
 # Per-mode transcription parameters
 TRANSCRIPTION_PARAMS = {
     "fast": {"beam_size": 1, "condition_on_previous_text": False},
-    "accurate": {"beam_size": 3, "condition_on_previous_text": True},
+    "accurate": {"beam_size": 5, "condition_on_previous_text": True},
 }
 
 

@@ -121,7 +121,7 @@ python3 start.py --prod
 ## 📖 使用指南
 
 1. **输入视频链接**: 在输入框中粘贴YouTube、Bilibili等平台的视频链接
-2. **选择摘要语言**: 在输入框旁的下拉菜单中选择输出语言
+2. **选择摘要语言**: 在输入框旁的下拉菜单中选择输出语言。默认选择“准确优先”模式；更重视速度时可切换到“速度优先”。
 3. **（可选）配置AI模型**: 点击 **AI Settings** 展开配置面板
    - 填写 **API Base URL**（如 `https://openrouter.ai/api/v1`）和 **API Key**
    - 点击 **Fetch** 自动拉取该服务商的可用模型列表
@@ -179,8 +179,10 @@ AI-Video-Transcriber/
 | `OPENAI_API_KEY` | API密钥（服务端默认值） | - | 否，可在UI中配置 |
 | `HOST` | 服务器地址 | `0.0.0.0` | 否 |
 | `PORT` | 服务器端口 | `8000` | 否 |
-| `WHISPER_MODEL` | Whisper模型大小 | `small` | 否 |
-| `WHISPER_MODEL_SIZE` | 兼容旧配置的 Whisper 模型别名 | `small` | 否 |
+| `WHISPER_MODEL` | 准确模式使用的 Whisper 模型（优先于旧别名） | `medium` | 否 |
+| `WHISPER_MODEL_SIZE` | 兼容旧配置的 Whisper 模型别名 | `medium` | 否 |
+| `WHISPER_ACCURATE_MODEL` | 准确模式使用的模型（优先于 `WHISPER_MODEL`） | `medium` | 否 |
+| `WHISPER_FAST_MODEL` | 快速模式使用的模型 | `base` | 否 |
 
 ### Whisper模型大小选项
 
@@ -195,7 +197,7 @@ AI-Video-Transcriber/
 ## 🔧 常见问题
 
 ### Q: 为什么转录速度很慢？
-A: 转录速度取决于视频长度、Whisper模型大小和硬件性能。现在默认使用 `small`，因为它对多语言语音的准确率明显高于 `base`。如果你更在意速度，可以切换到 `base` 或 `tiny`。
+A: 转录速度取决于视频长度、Whisper模型大小和硬件性能。准确模式默认使用多语言 `medium` 模型和更大的 beam search，计算资源需求高于 `base` 或 `small`。如果更在意速度或内存占用，可选择“速度优先”模式，或将 `WHISPER_ACCURATE_MODEL` 设置为较小模型。
 
 ### Q: 支持哪些视频平台？
 A: 支持所有yt-dlp支持的平台，包括但不限于：YouTube、抖音、Bilibili、优酷、爱奇艺、腾讯视频等。

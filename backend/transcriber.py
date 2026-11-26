@@ -41,7 +41,7 @@ class Transcriber:
     # Minimum file duration (seconds) before splitting into chunks
     CHUNK_THRESHOLD = 900  # Only chunk if > 15 minutes
     
-    def __init__(self, model_size: str = "small", preload: bool = True,
+    def __init__(self, model_size: str = "medium", preload: bool = True,
                  beam_size: int = 5, condition_on_previous_text: bool = True):
         """
         初始化转录器
@@ -365,11 +365,9 @@ class Transcriber:
     def format_verbatim(self, raw_transcript: str, video_title: str = None) -> str:
         """
         Format a raw transcript (from Whisper or subtitles) into the same
-        markdown structure used by the app, while refining only the spoken
-        text for readability.
+        markdown structure used by the app without changing its wording.
         """
         import re
-        from metadata_generator import _refine_tagalog_english_text
 
         lines = raw_transcript.split('\n')
         output_lines = []
@@ -427,7 +425,6 @@ class Transcriber:
                     i += 1
                 if text_parts:
                     text = ' '.join(text_parts)
-                    text = _refine_tagalog_english_text(text)
                     output_lines.append(f"**[{start_ts} - {end_ts}]**")
                     output_lines.append("")
                     output_lines.append(text)
@@ -444,7 +441,7 @@ class Transcriber:
                 continue
 
             # Plain text line without timestamp (e.g. from subtitle path)
-            output_lines.append(_refine_tagalog_english_text(line))
+            output_lines.append(line)
             i += 1
 
         return '\n'.join(output_lines)
